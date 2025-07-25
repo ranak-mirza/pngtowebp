@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PNG to WEBP Converter</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        .drop-zone {
+            border: 2px dashed #ccc;
+            border-radius: 10px;
+            padding: 40px;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: border-color 0.3s;
+        }
+        .drop-zone:hover, .drop-zone.dragover {
+            border-color: #4CAF50;
+        }
+        .preview-container {
+            display: flex;
+            justify-content: space-between;
+            margin: 20px 0;
+            flex-wrap: wrap;
+        }
+        .preview {
+            text-align: center;
+            flex: 1;
+            min-width: 250px;
+            margin: 10px;
+        }
+        .preview img {
+            max-width: 100%;
+            max-height: 300px;
+            border: 1px solid #ccc;
+            margin-bottom: 10px;
+        }
+        #quality-slider {
+            width: 100%;
+            margin: 10px 0;
+        }
+        #convert-btn, #download-btn {
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            margin-top: 10px;
+            font-size: 16px; /* Larger for touch */
+        }
+        #download-btn {
+            display: none;
+            background-color: #2196F3;
+        }
+        #status {
+            margin-top: 10px;
+            color: #333;
+        }
+        #file-list {
+            margin: 20px 0;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        #file-list ul {
+            list-style-type: none;
+            padding: 0;
+        }
+        #file-list li {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #preview-section {
+            display: none;
+        }
+        @media (max-width: 600px) {
+            .drop-zone {
+                padding: 20px;
+            }
+            .preview-container {
+                flex-direction: column;
+                align-items: center;
+            }
+            .preview {
+                margin: 10px 0;
+                min-width: auto;
+            }
+            #convert-btn, #download-btn {
+                width: 100%;
+                padding: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>PNG to WEBP Converter</h1>
+    <p>Convert PNG to WEBP online for free. Simply drop your PNG image(s) below to convert to WEBP in seconds. Supports batch conversion for multiple files.</p>
+
+    <div id="drop-zone" class="drop-zone">
+        <p>Drop your PNG(s) here or click to upload</p>
+    </div>
+    <input type="file" id="file-input" accept="image/png" multiple style="display: none;">
+
+    <div id="file-list"></div>
+
+    <div id="preview-section" class="preview-container">
+        <div class="preview">
+            <h3>Original PNG</h3>
+            <img id="original-preview" alt="Original Preview">
+            <p id="original-size">Size: N/A</p>
+        </div>
+        <div class="preview">
+            <h3>Converted WEBP</h3>
+            <img id="webp-preview" alt="WEBP Preview">
+            <p id="webp-size">Size: N/A</p>
+        </div>
+    </div>
+
+    <label for="quality-slider">Quality: <span id="quality-value">80</span>%</label>
+    <input type="range" id="quality-slider" min="0" max="100" value="80">
+
+    <button id="convert-btn">Convert to WEBP</button>
+    <button id="download-btn">Download</button>
+    <p id="status"></p>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const originalPreview = document.getElementById('original-preview');
+        const originalSize = document.getElementById('original-size');
+        const webpPreview = document.getElementById('webp-preview');
+        const webpSize = document.getElementById('webp-size');
+        const qualitySlider = document.getElementById('quality-slider');
+        const qualityValue = document.getElementById('quality-value');
+        const convertBtn = document.getElementById('convert-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const status = document.getElementById('status');
+        const fileList = document.getElementById('file-list');
+        const previewSection = document.getElementById('preview-section');
+
+        let filesData = []; // Array of {name, originalBlob, originalSize, webpBlob, webpSize, originalImage}
+
+        // Make drop zone clickable to trigger file input
+        dropZone.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Drag and drop events
+        dropZone.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (event) => {
+            event.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFiles(event.dataTransfer.files);
+        });
+
+        // File input change
+        fileInput.addEventListener('change', (event) => {
+            handleFiles(event.target.files);
+        });
+
+        function handleFiles(files) {
+            filesData = [];
+            status.textContent = '';
+            downloadBtn.style.display = 'none';
+            webpPreview.src = '';
+            webpSize.textContent = 'Size: N/A';
+            fileList.innerHTML = '';
+
+            Array.from(files).forEach(file => {
+                if (file.type === 'image/png') {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const img = new Image();
+                        img.src = e.target.result;
+                        filesData.push({
+                            name: file.name,
+                            originalBlob: file,
+                            originalSize: (file.size / 1024).toFixed(2) + ' KB',
+                            webpBlob: null,
+                            webpSize: 'N/A',
+                            originalImage: img
+                        });
+                        updateFileList();
+                        if (filesData.length === 1) {
+                            previewSection.style.display = 'flex';
+                            originalPreview.src = e.target.result;
+                            originalSize.textContent = `Size: ${filesData[0].originalSize}`;
+                        } else {
+                            previewSection.style.display = 'none';
+                        }
+                    };
+                    reader.readAsDataURL(file);
+                } else {
+                    status.textContent = 'Please upload only PNG images.';
+                }
+            });
+        }
+
+        function updateFileList() {
+            if (filesData.length > 1) {
+                const ul = document.createElement('ul');
+                filesData.forEach(fileData => {
+                    const li = document.createElement('li');
+                    li.textContent = `${fileData.name} - Original: ${fileData.originalSize}, Converted: ${fileData.webpSize}`;
+                    ul.appendChild(li);
+                });
+                fileList.innerHTML = '<h3>Uploaded Files:</h3>';
+                fileList.appendChild(ul);
+            } else {
+                fileList.innerHTML = '';
+            }
+        }
+
+        // Update quality value display
+        qualitySlider.addEventListener('input', () => {
+            qualityValue.textContent = qualitySlider.value;
+        });
+
+        // Convert to WEBP
+        convertBtn.addEventListener('click', async () => {
+            if (filesData.length === 0) {
+                status.textContent = 'Please upload PNG image(s) first.';
+                return;
+            }
+
+            status.textContent = 'Converting...';
+
+            const quality = qualitySlider.value / 100;
+
+            const conversionPromises = filesData.map(async (fileData) => {
+                const canvas = document.createElement('canvas');
+                canvas.width = fileData.originalImage.width;
+                canvas.height = fileData.originalImage.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(fileData.originalImage, 0, 0);
+
+                return new Promise((resolve) => {
+                    canvas.toBlob((blob) => {
+                        if (blob) {
+                            fileData.webpBlob = blob;
+                            fileData.webpSize = (blob.size / 1024).toFixed(2) + ' KB';
+                        }
+                        resolve();
+                    }, 'image/webp', quality);
+                });
+            });
+
+            await Promise.all(conversionPromises);
+
+            if (filesData.every(fd => fd.webpBlob)) {
+                if (filesData.length === 1) {
+                    const url = URL.createObjectURL(filesData[0].webpBlob);
+                    webpPreview.src = url;
+                    webpSize.textContent = `Size: ${filesData[0].webpSize}`;
+                } else {
+                    updateFileList();
+                }
+                downloadBtn.style.display = 'inline-block';
+                status.textContent = 'Conversion complete!';
+            } else {
+                status.textContent = 'Conversion failed for some files. Your browser may not support WEBP.';
+            }
+        });
+
+        // Download
+        downloadBtn.addEventListener('click', () => {
+            if (filesData.length === 1 && filesData[0].webpBlob) {
+                const url = URL.createObjectURL(filesData[0].webpBlob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = filesData[0].name.replace(/\.png$/i, '.webp');
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } else if (filesData.length > 1) {
+                const zip = new JSZip();
+                filesData.forEach(fd => {
+                    if (fd.webpBlob) {
+                        zip.file(fd.name.replace(/\.png$/i, '.webp'), fd.webpBlob);
+                    }
+                });
+                zip.generateAsync({type: 'blob'}).then((content) => {
+                    const url = URL.createObjectURL(content);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = 'converted_images.zip';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                });
+            }
+        });
+    </script>
+</body>
+</html>
